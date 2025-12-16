@@ -269,8 +269,9 @@ GRANT OWNERSHIP ON ALL TABLES IN SCHEMA FMG_PRODUCTION.RAW TO ROLE SYSADMIN COPY
 -- Check what grants FMG_ANALYST has on a specific table
 SHOW GRANTS ON TABLE FMG_PRODUCTION.RAW.CUSTOMERS;
 
--- Check what roles your current user has
-SHOW GRANTS TO USER IDENTIFIER($CURRENT_USER);
+-- Check what roles your current user has (replace YOUR_USERNAME)
+-- SHOW GRANTS TO USER YOUR_USERNAME;
+SELECT CURRENT_USER() AS YOUR_USERNAME;
 
 -- ============================================================================
 -- SETUP COMPLETE!

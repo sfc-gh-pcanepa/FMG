@@ -12,15 +12,20 @@ USE ROLE ACCOUNTADMIN;
 -- If DEFAULT_SECONDARY_ROLES = 'ALL', the user gets privileges from ALL their roles
 -- combined, not just the current role!
 
-SHOW PARAMETERS LIKE 'DEFAULT_SECONDARY_ROLES' IN USER IDENTIFIER($CURRENT_USER);
+-- First, see who you are
+SELECT CURRENT_USER() AS YOUR_USERNAME, CURRENT_ROLE() AS YOUR_CURRENT_ROLE;
+
+-- Check secondary roles setting (run this separately with your username)
+SHOW PARAMETERS LIKE 'DEFAULT_SECONDARY_ROLES' IN ACCOUNT;
 
 -- Check current session secondary roles
-SELECT CURRENT_SECONDARY_ROLES();
+SELECT CURRENT_SECONDARY_ROLES() AS ACTIVE_SECONDARY_ROLES;
 
 -- ============================================================================
 -- DIAGNOSTIC 2: Check what roles YOUR USER has
 -- ============================================================================
-SHOW GRANTS TO USER IDENTIFIER($CURRENT_USER);
+-- Replace <YOUR_USERNAME> with your actual username from the query above
+-- SHOW GRANTS TO USER <YOUR_USERNAME>;
 
 -- ============================================================================
 -- DIAGNOSTIC 3: Check what roles FMG_ANALYST has/inherits
@@ -57,7 +62,11 @@ SHOW FUTURE GRANTS IN SCHEMA FMG_PRODUCTION.RAW;
 -- FIX 1: Disable Secondary Roles for your user (IMPORTANT!)
 -- ============================================================================
 -- This ensures when you USE ROLE FMG_ANALYST, you ONLY get FMG_ANALYST privileges
-ALTER USER IDENTIFIER($CURRENT_USER) SET DEFAULT_SECONDARY_ROLES = ('NONE');
+-- Replace <YOUR_USERNAME> with your actual username
+-- ALTER USER <YOUR_USERNAME> SET DEFAULT_SECONDARY_ROLES = ('NONE');
+
+-- Or run this which works for current user:
+ALTER SESSION SET DEFAULT_SECONDARY_ROLES = NONE;
 
 -- ============================================================================
 -- FIX 2: Transfer table ownership to SYSADMIN
