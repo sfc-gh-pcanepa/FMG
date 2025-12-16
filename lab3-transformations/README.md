@@ -4,7 +4,6 @@
 
 ## Overview
 
-**Duration**: 90 minutes  
 **Level**: Intermediate to Advanced
 
 In this lab, you'll build data transformation pipelines using Snowflake's native features including Streams, Tasks, Dynamic Tables, and zero-copy cloning.
@@ -24,7 +23,7 @@ In this lab, you'll build data transformation pipelines using Snowflake's native
 
 ---
 
-## Step 1: Understand Transformation Options (10 min)
+## Step 1: Understand Transformation Options
 
 ### Comparison: Streams+Tasks vs Dynamic Tables
 
@@ -38,7 +37,7 @@ In this lab, you'll build data transformation pipelines using Snowflake's native
 
 ---
 
-## Step 2: Create Streams for CDC (15 min)
+## Step 2: Create Streams for CDC
 
 ### 2.1 What are Streams?
 
@@ -99,7 +98,7 @@ FROM CUSTOMERS_STREAM;
 
 ---
 
-## Step 3: Create Tasks for Automation (20 min)
+## Step 3: Create Tasks for Automation
 
 ### 3.1 Create Target Table
 
@@ -187,7 +186,7 @@ LIMIT 5;
 
 ---
 
-## Step 4: Create Dynamic Tables (20 min)
+## Step 4: Create Dynamic Tables
 
 ### 4.1 What are Dynamic Tables?
 
@@ -284,7 +283,7 @@ LIMIT 10;
 
 ---
 
-## Step 5: Zero-Copy Cloning (10 min)
+## Step 5: Zero-Copy Cloning
 
 ### 5.1 Clone a Database
 
@@ -321,7 +320,7 @@ SELECT 'CLONE', COUNT(*) FROM FMG_PRODUCTION.RAW.CUSTOMERS_BACKUP;
 
 ---
 
-## Step 6: Time Travel & Undrop (10 min)
+## Step 6: Time Travel & Undrop
 
 ### 6.1 Query Historical Data
 
@@ -351,7 +350,7 @@ SHOW TABLES LIKE 'CUSTOMERS_BACKUP' IN SCHEMA FMG_PRODUCTION.RAW;
 
 ---
 
-## Step 7: Hands-On Exercise (10 min)
+## Step 7: Hands-On Exercise
 
 ### Challenge: Create a Usage Summary Dynamic Table
 

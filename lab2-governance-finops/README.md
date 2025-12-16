@@ -4,7 +4,6 @@
 
 ## Overview
 
-**Duration**: 90 minutes  
 **Level**: Intermediate
 
 In this lab, you'll implement governance and cost management for FMG's data platform including data classification, resource monitoring, auditing, and access policies.
@@ -24,7 +23,7 @@ In this lab, you'll implement governance and cost management for FMG's data plat
 
 ---
 
-## Step 1: Explore Horizon Catalog (15 min)
+## Step 1: Explore Horizon Catalog
 
 ### 1.1 Understand Horizon
 
@@ -100,7 +99,7 @@ SELECT * FROM TABLE(FMG_PRODUCTION.INFORMATION_SCHEMA.TAG_REFERENCES(
 
 ---
 
-## Step 2: Set Up Resource Monitoring (15 min)
+## Step 2: Set Up Resource Monitoring
 
 ### 2.1 Understand Credit Usage
 
@@ -168,7 +167,7 @@ SELECT * FROM BUDGET_CONFIG;
 
 ---
 
-## Step 3: Query ACCOUNT_USAGE for Auditing (20 min)
+## Step 3: Query ACCOUNT_USAGE for Auditing
 
 ### 3.1 Understand ACCOUNT_USAGE
 
@@ -236,7 +235,7 @@ ORDER BY access_date DESC, access_count DESC;
 
 ---
 
-## Step 4: Implement Data Masking (20 min)
+## Step 4: Implement Data Masking
 
 ### 4.1 Create Masking Policies
 
@@ -311,7 +310,7 @@ SELECT user_id, email, phone FROM FMG_PRODUCTION.RAW.USERS LIMIT 5;
 
 ---
 
-## Step 5: Implement Row-Level Security (15 min)
+## Step 5: Implement Row-Level Security
 
 ### 5.1 Create Row Access Policy
 
@@ -353,7 +352,7 @@ GROUP BY 1;
 
 ---
 
-## Step 6: Hands-On Exercise (10 min)
+## Step 6: Hands-On Exercise
 
 ### Challenge: Create a Cost Dashboard Query
 

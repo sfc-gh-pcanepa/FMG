@@ -1,93 +1,26 @@
 /*=============================================================================
   FMG SUITE - LAB 1: GETTING STARTED WITH SNOWFLAKE
-  Script 2: Compute Provisioning
+  Script 2: Advanced Compute Configuration
   
-  Description: Configure virtual warehouses for different FMG workloads
-  Prerequisites: ACCOUNTADMIN or SYSADMIN access
-  Duration: ~10 minutes
+  Description: Configure advanced warehouse features (multi-cluster, acceleration, timeouts)
+  Prerequisites: Run setup/00_environment_setup.sql first
 =============================================================================*/
 
 -- ============================================================================
 -- SECTION 1: SET CONTEXT
 -- ============================================================================
 
-USE ROLE SYSADMIN;  -- SYSADMIN can create warehouses
+USE ROLE SYSADMIN;
+
+-- Verify warehouses were created
+SHOW WAREHOUSES LIKE 'FMG%';
+-- You should see: FMG_DEV_XS, FMG_PROD_S, FMG_ANALYTICS_M, FMG_ML_L
 
 -- ============================================================================
--- SECTION 2: UNDERSTAND WAREHOUSE SIZING
+-- SECTION 2: CREATE DATA LOADING WAREHOUSE
 -- ============================================================================
 
-/*
-    Snowflake Warehouse Sizes and Credits per Hour:
-    
-    Size        │ Credits/Hour │ Servers │ Best For
-    ────────────┼──────────────┼─────────┼─────────────────────────────
-    X-Small     │ 1            │ 1       │ Development, simple queries
-    Small       │ 2            │ 2       │ Light production workloads
-    Medium      │ 4            │ 4       │ Standard analytics, BI
-    Large       │ 8            │ 8       │ Complex queries, ML
-    X-Large     │ 16           │ 16      │ Heavy ETL, large datasets
-    2X-Large    │ 32           │ 32      │ Very large scale processing
-    ...         │              │         │
-    6X-Large    │ 512          │ 512     │ Maximum scale
-    
-    Key Insight: Larger warehouses run faster but cost more per hour.
-    For long-running queries, a larger warehouse may be MORE cost-effective!
-*/
-
--- ============================================================================
--- SECTION 3: CREATE FMG WAREHOUSES
--- ============================================================================
-
--- Development Warehouse: For developers and ad-hoc queries
-CREATE WAREHOUSE IF NOT EXISTS FMG_DEV_XS
-    WAREHOUSE_SIZE = 'X-SMALL'
-    WAREHOUSE_TYPE = 'STANDARD'
-    AUTO_SUSPEND = 60           -- Suspend after 1 minute idle
-    AUTO_RESUME = TRUE          -- Auto-start when query arrives
-    INITIALLY_SUSPENDED = TRUE  -- Don't start now
-    MIN_CLUSTER_COUNT = 1       -- Single cluster
-    MAX_CLUSTER_COUNT = 1
-    SCALING_POLICY = 'STANDARD'
-    COMMENT = 'Development warehouse for FMG team - auto-suspends quickly';
-
--- Production Warehouse: For dashboards and standard reporting
-CREATE WAREHOUSE IF NOT EXISTS FMG_PROD_S
-    WAREHOUSE_SIZE = 'SMALL'
-    WAREHOUSE_TYPE = 'STANDARD'
-    AUTO_SUSPEND = 120          -- 2 minute suspend
-    AUTO_RESUME = TRUE
-    INITIALLY_SUSPENDED = TRUE
-    MIN_CLUSTER_COUNT = 1
-    MAX_CLUSTER_COUNT = 2       -- Can scale to 2 clusters for concurrent users
-    SCALING_POLICY = 'STANDARD'
-    COMMENT = 'Production warehouse for FMG dashboards and reporting';
-
--- Analytics Warehouse: For BI tools, heavy transformations
-CREATE WAREHOUSE IF NOT EXISTS FMG_ANALYTICS_M
-    WAREHOUSE_SIZE = 'MEDIUM'
-    WAREHOUSE_TYPE = 'STANDARD'
-    AUTO_SUSPEND = 180          -- 3 minute suspend
-    AUTO_RESUME = TRUE
-    INITIALLY_SUSPENDED = TRUE
-    MIN_CLUSTER_COUNT = 1
-    MAX_CLUSTER_COUNT = 3       -- Scale up for peak BI usage
-    SCALING_POLICY = 'STANDARD'
-    COMMENT = 'Analytics warehouse for BI tools and transformations';
-
--- ML/AI Warehouse: For Cortex and data science workloads
-CREATE WAREHOUSE IF NOT EXISTS FMG_ML_L
-    WAREHOUSE_SIZE = 'LARGE'
-    WAREHOUSE_TYPE = 'STANDARD'
-    AUTO_SUSPEND = 300          -- 5 minute suspend (ML jobs may have pauses)
-    AUTO_RESUME = TRUE
-    INITIALLY_SUSPENDED = TRUE
-    MIN_CLUSTER_COUNT = 1
-    MAX_CLUSTER_COUNT = 1       -- ML typically single-threaded
-    SCALING_POLICY = 'STANDARD'
-    COMMENT = 'ML/AI warehouse for Cortex and data science workloads';
-
--- Data Loading Warehouse: For ETL and batch loading
+-- ETL/Loading Warehouse: For batch data loading
 CREATE WAREHOUSE IF NOT EXISTS FMG_LOAD_M
     WAREHOUSE_SIZE = 'MEDIUM'
     WAREHOUSE_TYPE = 'STANDARD'
@@ -95,191 +28,149 @@ CREATE WAREHOUSE IF NOT EXISTS FMG_LOAD_M
     AUTO_RESUME = TRUE
     INITIALLY_SUSPENDED = TRUE
     MIN_CLUSTER_COUNT = 1
-    MAX_CLUSTER_COUNT = 1       -- Loading is typically sequential
-    SCALING_POLICY = 'STANDARD'
+    MAX_CLUSTER_COUNT = 1
     COMMENT = 'Data loading warehouse for ETL pipelines';
 
+-- Grant access
+GRANT USAGE ON WAREHOUSE FMG_LOAD_M TO ROLE FMG_ENGINEER;
+GRANT OPERATE ON WAREHOUSE FMG_LOAD_M TO ROLE FMG_ENGINEER;
+GRANT ALL PRIVILEGES ON WAREHOUSE FMG_LOAD_M TO ROLE FMG_ADMIN;
+
 -- ============================================================================
--- SECTION 4: QUERY ACCELERATION (Snowflake Enterprise+)
+-- SECTION 3: CONFIGURE MULTI-CLUSTER SCALING
 -- ============================================================================
 
 /*
-    Query Acceleration offloads portions of query processing to shared compute
-    resources. Great for:
-    - Queries with large scans and selective filters
+    Multi-cluster warehouses handle concurrency, NOT query speed.
+    Use when many users query simultaneously (e.g., dashboards).
+    
+    SCALING_POLICY options:
+    - STANDARD: Scale out gradually as queries queue
+    - ECONOMY: Favor queuing over scaling (saves cost)
+*/
+
+-- Production: Scale to 2 clusters for concurrent dashboard users
+ALTER WAREHOUSE FMG_PROD_S SET
+    MIN_CLUSTER_COUNT = 1
+    MAX_CLUSTER_COUNT = 2
+    SCALING_POLICY = 'STANDARD';
+
+-- Analytics: Scale to 3 clusters for peak BI usage
+ALTER WAREHOUSE FMG_ANALYTICS_M SET
+    MIN_CLUSTER_COUNT = 1
+    MAX_CLUSTER_COUNT = 3
+    SCALING_POLICY = 'STANDARD';
+
+-- ============================================================================
+-- SECTION 4: ENABLE QUERY ACCELERATION
+-- ============================================================================
+
+/*
+    Query Acceleration offloads portions of queries to shared compute.
+    Great for:
+    - Large scans with selective filters
     - Spiky workloads with occasional complex queries
     - Dashboards with varying query complexity
     
-    It's billed separately from warehouse compute.
+    Billed separately from warehouse compute.
 */
 
--- Enable Query Acceleration on analytics warehouse
 ALTER WAREHOUSE FMG_ANALYTICS_M SET
     ENABLE_QUERY_ACCELERATION = TRUE
-    QUERY_ACCELERATION_MAX_SCALE_FACTOR = 4;  -- Max 4x additional compute
+    QUERY_ACCELERATION_MAX_SCALE_FACTOR = 4;
 
--- Check if acceleration is beneficial for recent queries
--- (Run after using the warehouse)
+-- Check acceleration eligibility (run after using the warehouse)
 -- SELECT * FROM TABLE(INFORMATION_SCHEMA.QUERY_ACCELERATION_ELIGIBLE('FMG_ANALYTICS_M'));
 
 -- ============================================================================
--- SECTION 5: GRANT WAREHOUSE ACCESS TO ROLES
--- ============================================================================
-
--- FMG_VIEWER: Only dev warehouse (for minimal access)
-GRANT USAGE ON WAREHOUSE FMG_DEV_XS TO ROLE FMG_VIEWER;
-
--- FMG_ANALYST: Dev and production warehouses
-GRANT USAGE ON WAREHOUSE FMG_DEV_XS TO ROLE FMG_ANALYST;
-GRANT USAGE ON WAREHOUSE FMG_PROD_S TO ROLE FMG_ANALYST;
-GRANT USAGE ON WAREHOUSE FMG_ANALYTICS_M TO ROLE FMG_ANALYST;
-
--- FMG_ENGINEER: All except ML warehouse
-GRANT USAGE ON WAREHOUSE FMG_DEV_XS TO ROLE FMG_ENGINEER;
-GRANT USAGE ON WAREHOUSE FMG_PROD_S TO ROLE FMG_ENGINEER;
-GRANT USAGE ON WAREHOUSE FMG_ANALYTICS_M TO ROLE FMG_ENGINEER;
-GRANT USAGE ON WAREHOUSE FMG_LOAD_M TO ROLE FMG_ENGINEER;
-GRANT OPERATE ON WAREHOUSE FMG_LOAD_M TO ROLE FMG_ENGINEER;  -- Can suspend/resume
-
--- FMG_COMPLIANCE_OFFICER: Dev and production
-GRANT USAGE ON WAREHOUSE FMG_DEV_XS TO ROLE FMG_COMPLIANCE_OFFICER;
-GRANT USAGE ON WAREHOUSE FMG_PROD_S TO ROLE FMG_COMPLIANCE_OFFICER;
-
--- FMG_DATA_SCIENTIST: Dev, analytics, and ML warehouses
-GRANT USAGE ON WAREHOUSE FMG_DEV_XS TO ROLE FMG_DATA_SCIENTIST;
-GRANT USAGE ON WAREHOUSE FMG_ANALYTICS_M TO ROLE FMG_DATA_SCIENTIST;
-GRANT USAGE ON WAREHOUSE FMG_ML_L TO ROLE FMG_DATA_SCIENTIST;
-GRANT OPERATE ON WAREHOUSE FMG_ML_L TO ROLE FMG_DATA_SCIENTIST;
-
--- FMG_ADMIN: Full access to all warehouses
-GRANT ALL PRIVILEGES ON WAREHOUSE FMG_DEV_XS TO ROLE FMG_ADMIN;
-GRANT ALL PRIVILEGES ON WAREHOUSE FMG_PROD_S TO ROLE FMG_ADMIN;
-GRANT ALL PRIVILEGES ON WAREHOUSE FMG_ANALYTICS_M TO ROLE FMG_ADMIN;
-GRANT ALL PRIVILEGES ON WAREHOUSE FMG_ML_L TO ROLE FMG_ADMIN;
-GRANT ALL PRIVILEGES ON WAREHOUSE FMG_LOAD_M TO ROLE FMG_ADMIN;
-
--- Service accounts
-GRANT USAGE ON WAREHOUSE FMG_LOAD_M TO ROLE FMG_SVC_ETL;
-GRANT USAGE ON WAREHOUSE FMG_ANALYTICS_M TO ROLE FMG_SVC_BI;
-
--- ============================================================================
--- SECTION 6: WAREHOUSE PARAMETER TUNING
+-- SECTION 5: SET STATEMENT TIMEOUTS
 -- ============================================================================
 
 /*
-    Key parameters to consider:
-    
-    STATEMENT_TIMEOUT_IN_SECONDS - Max query runtime
-    STATEMENT_QUEUED_TIMEOUT_IN_SECONDS - Max time in queue
-    
-    These prevent runaway queries from consuming resources.
+    Prevent runaway queries from burning credits.
+    Set different limits based on expected workload.
 */
 
--- Set reasonable timeouts on production warehouse
+-- Production: 30 minute max (dashboards should be fast)
 ALTER WAREHOUSE FMG_PROD_S SET 
-    STATEMENT_TIMEOUT_IN_SECONDS = 1800;  -- 30 minutes max query time
+    STATEMENT_TIMEOUT_IN_SECONDS = 1800;
 
--- Analytics can run longer queries
+-- Analytics: 2 hour max (complex analysis)
 ALTER WAREHOUSE FMG_ANALYTICS_M SET 
-    STATEMENT_TIMEOUT_IN_SECONDS = 7200;  -- 2 hours max
+    STATEMENT_TIMEOUT_IN_SECONDS = 7200;
 
--- ML warehouse needs even longer for training jobs
+-- ML: 4 hour max (model training)
 ALTER WAREHOUSE FMG_ML_L SET 
-    STATEMENT_TIMEOUT_IN_SECONDS = 14400;  -- 4 hours max
+    STATEMENT_TIMEOUT_IN_SECONDS = 14400;
+
+-- Loading: 1 hour max
+ALTER WAREHOUSE FMG_LOAD_M SET 
+    STATEMENT_TIMEOUT_IN_SECONDS = 3600;
 
 -- ============================================================================
--- SECTION 7: VERIFY WAREHOUSE CONFIGURATION
+-- SECTION 6: ADDITIONAL ROLE GRANTS
 -- ============================================================================
 
--- Show all FMG warehouses
+-- Grant OPERATE privilege (suspend/resume) to specific roles
+GRANT OPERATE ON WAREHOUSE FMG_ML_L TO ROLE FMG_DATA_SCIENTIST;
+GRANT OPERATE ON WAREHOUSE FMG_ANALYTICS_M TO ROLE FMG_ENGINEER;
+
+-- ============================================================================
+-- SECTION 7: VERIFY CONFIGURATION
+-- ============================================================================
+
 SHOW WAREHOUSES LIKE 'FMG%';
 
--- Get detailed information
 SELECT 
     name,
     size,
     min_cluster_count,
     max_cluster_count,
     auto_suspend,
-    auto_resume,
     enable_query_acceleration,
-    query_acceleration_max_scale_factor,
-    comment
+    query_acceleration_max_scale_factor
 FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()));
 
--- Check warehouse state
-SELECT 
-    name,
-    state,
-    running,
-    queued,
-    is_current
-FROM TABLE(RESULT_SCAN(LAST_QUERY_ID(-2)));
-
 -- ============================================================================
--- SECTION 8: TEST WAREHOUSE FUNCTIONALITY
+-- SECTION 8: TEST WAREHOUSE
 -- ============================================================================
 
--- Start the dev warehouse and run a test query
 USE WAREHOUSE FMG_DEV_XS;
 
--- Simple test query
 SELECT 
-    'FMG Warehouse Test' AS test_name,
+    'Warehouse Test' AS test_name,
     CURRENT_WAREHOUSE() AS warehouse,
     CURRENT_TIMESTAMP() AS executed_at;
 
--- Check that the warehouse is now running
-SHOW WAREHOUSES LIKE 'FMG_DEV_XS';
-
--- View recent warehouse usage (requires some history)
--- SELECT * FROM SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_METERING_HISTORY
--- WHERE WAREHOUSE_NAME LIKE 'FMG%'
--- AND START_TIME > DATEADD('day', -7, CURRENT_TIMESTAMP())
--- ORDER BY START_TIME DESC
--- LIMIT 20;
-
 -- ============================================================================
--- SECTION 9: BEST PRACTICES SUMMARY
+-- BEST PRACTICES SUMMARY
 -- ============================================================================
 
 /*
     FMG Warehouse Strategy:
     
     1. SIZE FOR THE WORKLOAD
-       - Dev/ad-hoc: X-Small (cheap, fast spin-up)
-       - Production: Small (balanced cost/performance)
-       - Analytics: Medium (handles complex joins)
-       - ML/AI: Large (Cortex needs compute power)
+       - Dev/ad-hoc: X-Small
+       - Production: Small
+       - Analytics/ETL: Medium
+       - ML/AI: Large
     
     2. AUTO-SUSPEND AGGRESSIVELY
-       - Dev: 60 seconds (nobody notices)
-       - Production: 120 seconds (dashboards may have pauses)
-       - Analytics: 180 seconds (complex work may pause briefly)
+       - Dev: 60s | Prod: 120s | Analytics: 180s | ML: 300s
     
-    3. USE MULTI-CLUSTER FOR CONCURRENCY
-       - Not for faster queries!
-       - For handling more simultaneous users
-       - Scaling policy: STANDARD (scale out gradually)
+    3. MULTI-CLUSTER FOR CONCURRENCY (not speed)
+       - Production: 1-2 clusters
+       - Analytics: 1-3 clusters
     
     4. QUERY ACCELERATION FOR SPIKY WORKLOADS
-       - Enable on dashboards with varied complexity
-       - Set reasonable scale factor (2-8x)
+       - Enable on analytics warehouse
+       - Scale factor 2-8x
     
-    5. SET TIMEOUTS
-       - Prevent runaway queries from burning credits
-       - Different limits for different use cases
-    
-    6. SEPARATE BY WORKLOAD TYPE
-       - Don't share ETL and BI on same warehouse
-       - Allows independent scaling and billing tracking
+    5. SET TIMEOUTS TO PREVENT RUNAWAY QUERIES
 */
 
 -- ============================================================================
--- SCRIPT COMPLETE!
+-- COMPLETE!
 -- ============================================================================
 
-SELECT '✅ Compute Provisioning Complete!' AS STATUS,
-       (SELECT COUNT(*) FROM TABLE(RESULT_SCAN(LAST_QUERY_ID(-5))) WHERE NAME LIKE 'FMG%') AS WAREHOUSES_CONFIGURED,
-       CURRENT_TIMESTAMP() AS COMPLETED_AT;
-
+SELECT '✅ Advanced Compute Configuration Complete!' AS STATUS;

@@ -4,7 +4,6 @@
 
 ## Overview
 
-**Duration**: 90 minutes  
 **Level**: Advanced
 
 In this lab, you'll build an AI-powered intelligence layer using Cortex LLM functions, Semantic Views, Cortex Search, and Cortex Agents.
@@ -24,7 +23,7 @@ In this lab, you'll build an AI-powered intelligence layer using Cortex LLM func
 
 ---
 
-## Step 1: Cortex LLM Functions (20 min)
+## Step 1: Cortex LLM Functions
 
 ### 1.1 Set Up Context
 
@@ -87,7 +86,7 @@ SELECT SNOWFLAKE.CORTEX.COMPLETE(
 
 ---
 
-## Step 2: Create Semantic Views (25 min)
+## Step 2: Create Semantic Views
 
 ### 2.1 What are Semantic Views?
 
@@ -209,7 +208,7 @@ GROUP BY 1;
 
 ---
 
-## Step 3: Create Cortex Search (15 min)
+## Step 3: Create Cortex Search
 
 ### 3.1 Create Knowledge Base
 
@@ -272,7 +271,7 @@ SELECT PARSE_JSON(
 
 ---
 
-## Step 4: Create Cortex Agents (20 min)
+## Step 4: Create Cortex Agents
 
 ### 4.1 What are Cortex Agents?
 
@@ -377,7 +376,7 @@ SELECT SNOWFLAKE.CORTEX.AGENT(
 
 ---
 
-## Step 5: Hands-On Exercise (10 min)
+## Step 5: Hands-On Exercise
 
 ### Challenge: Add a Usage Semantic View
 
