@@ -11,7 +11,7 @@
 -- ============================================================================
 -- STEP 1: Set Context
 -- ============================================================================
-USE ROLE FMG_ADMIN;
+USE ROLE ACCOUNTADMIN;  -- Need admin to create tables in RAW schema
 USE DATABASE FMG_PRODUCTION;
 USE SCHEMA RAW;
 USE WAREHOUSE FMG_DEV_XS;
