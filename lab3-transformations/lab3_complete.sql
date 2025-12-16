@@ -15,7 +15,7 @@
 -- ============================================================================
 USE ROLE FMG_ADMIN;
 USE WAREHOUSE FMG_ANALYTICS_WH;
-USE SCHEMA FMG_DATA.PRODUCTION;
+USE SCHEMA FMG_LABS.PRODUCTION;
 
 -- Create subscriptions table
 CREATE OR REPLACE TABLE SUBSCRIPTIONS (
@@ -44,7 +44,7 @@ INSERT INTO SUBSCRIPTIONS VALUES
 -- ============================================================================
 
 -- Create a customer summary that AUTOMATICALLY stays up to date
-CREATE OR REPLACE DYNAMIC TABLE FMG_DATA.PRODUCTION.CUSTOMER_360
+CREATE OR REPLACE DYNAMIC TABLE FMG_LABS.PRODUCTION.CUSTOMER_360
     TARGET_LAG = '1 minute'  -- Refresh within 1 minute of source changes
     WAREHOUSE = FMG_ANALYTICS_WH
 AS
@@ -88,25 +88,25 @@ LIMIT 5;
 -- ============================================================================
 
 -- Clone the entire database for development - INSTANT, NO EXTRA STORAGE!
-CREATE DATABASE FMG_DATA_DEV CLONE FMG_DATA;
+CREATE DATABASE FMG_LABS_DEV CLONE FMG_LABS;
 
 -- Verify it's there
-SHOW DATABASES LIKE 'FMG_DATA%';
+SHOW DATABASES LIKE 'FMG_LABS%';
 
 -- The clone is independent - changes don't affect the original
-USE DATABASE FMG_DATA_DEV;
+USE DATABASE FMG_LABS_DEV;
 DELETE FROM PRODUCTION.CUSTOMERS WHERE segment = 'SMB';
 
 -- Original is untouched
-SELECT COUNT(*) AS dev_count FROM FMG_DATA_DEV.PRODUCTION.CUSTOMERS;
-SELECT COUNT(*) AS prod_count FROM FMG_DATA.PRODUCTION.CUSTOMERS;
+SELECT COUNT(*) AS dev_count FROM FMG_LABS_DEV.PRODUCTION.CUSTOMERS;
+SELECT COUNT(*) AS prod_count FROM FMG_LABS.PRODUCTION.CUSTOMERS;
 
 -- 🎯 Key insight: Clone is instant regardless of data size. Only stores the DELTA.
 
 -- ============================================================================
 -- STEP 5: TIME TRAVEL (Undo Mistakes!)
 -- ============================================================================
-USE DATABASE FMG_DATA;
+USE DATABASE FMG_LABS;
 USE SCHEMA PRODUCTION;
 
 -- "Accidentally" delete data
@@ -145,7 +145,7 @@ SELECT COUNT(*) FROM SUBSCRIPTIONS;
 -- ============================================================================
 -- CLEANUP
 -- ============================================================================
-DROP DATABASE FMG_DATA_DEV;  -- Remove dev clone
+DROP DATABASE FMG_LABS_DEV;  -- Remove dev clone
 
 -- ============================================================================
 -- 🎉 LAB 3 COMPLETE!

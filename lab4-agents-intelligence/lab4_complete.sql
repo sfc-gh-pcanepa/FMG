@@ -15,7 +15,7 @@
 -- ============================================================================
 USE ROLE FMG_ADMIN;
 USE WAREHOUSE FMG_ANALYTICS_WH;
-USE SCHEMA FMG_DATA.PRODUCTION;
+USE SCHEMA FMG_LABS.PRODUCTION;
 
 -- Create NPS/feedback table
 CREATE OR REPLACE TABLE CUSTOMER_FEEDBACK (
@@ -101,7 +101,7 @@ INSERT INTO KNOWLEDGE_BASE VALUES
     ('KB005', 'Scheduling Social Media Posts', 'Go to Social Media > Create Post. Write your content or use our AI assistant. Select platforms (LinkedIn, Facebook, Twitter). Click Schedule, pick date and time. View all scheduled posts in the Calendar view.', 'Social');
 
 -- Create Cortex Search service
-CREATE OR REPLACE CORTEX SEARCH SERVICE FMG_DATA.PRODUCTION.KB_SEARCH
+CREATE OR REPLACE CORTEX SEARCH SERVICE FMG_LABS.PRODUCTION.KB_SEARCH
     ON content
     ATTRIBUTES title, category
     WAREHOUSE = FMG_ANALYTICS_WH
@@ -114,7 +114,7 @@ AS (
 -- Search with natural language (not keywords!)
 SELECT PARSE_JSON(
     SNOWFLAKE.CORTEX.SEARCH_PREVIEW(
-        'FMG_DATA.PRODUCTION.KB_SEARCH',
+        'FMG_LABS.PRODUCTION.KB_SEARCH',
         '{"query": "my emails are not being received by clients", "columns": ["title", "content"], "limit": 2}'
     )
 ) AS search_results;
@@ -126,7 +126,7 @@ SELECT PARSE_JSON(
 -- ============================================================================
 
 -- First, create a semantic view that describes your data
-CREATE OR REPLACE VIEW FMG_DATA.PRODUCTION.V_CUSTOMER_ANALYTICS AS
+CREATE OR REPLACE VIEW FMG_LABS.PRODUCTION.V_CUSTOMER_ANALYTICS AS
 SELECT 
     c.customer_id,
     c.company_name,

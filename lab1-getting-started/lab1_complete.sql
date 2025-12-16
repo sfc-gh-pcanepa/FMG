@@ -8,44 +8,33 @@
   ✅ Role-based access control in action
   
   Time: ~20 minutes
+  Prerequisites: Run setup/prospect_setup.sql first
 =============================================================================*/
 
 -- ============================================================================
--- STEP 1: CREATE ROLES (30 seconds!)
+-- STEP 1: VERIFY SETUP
 -- ============================================================================
 USE ROLE ACCOUNTADMIN;
 
--- Create three roles with different access levels
-CREATE ROLE IF NOT EXISTS FMG_ADMIN COMMENT = 'Full access to all FMG data';
-CREATE ROLE IF NOT EXISTS FMG_ANALYST COMMENT = 'Read-only access for reporting';
-CREATE ROLE IF NOT EXISTS FMG_ENGINEER COMMENT = 'Read/write for data pipelines';
+-- Confirm roles exist (created in prospect_setup.sql)
+SHOW ROLES LIKE 'FMG%';
 
--- Set up hierarchy (analyst inherits viewer privileges)
-GRANT ROLE FMG_ANALYST TO ROLE FMG_ADMIN;
-GRANT ROLE FMG_ENGINEER TO ROLE FMG_ADMIN;
-GRANT ROLE FMG_ADMIN TO ROLE SYSADMIN;
+-- Confirm warehouses exist
+SHOW WAREHOUSES LIKE 'FMG%';
 
--- That's it! Roles created in seconds ✅
+-- Confirm data is loaded
+SELECT COUNT(*) AS customer_count FROM FMG_LABS.PRODUCTION.CUSTOMERS;
 
 -- ============================================================================
--- STEP 2: CREATE WAREHOUSES (Separation of Compute)
+-- STEP 2: EXPLORE SEPARATION OF COMPUTE
 -- ============================================================================
 
--- Create two separate warehouses for different workloads
-CREATE WAREHOUSE IF NOT EXISTS FMG_ANALYTICS_WH
-    WAREHOUSE_SIZE = 'XSMALL'
-    AUTO_SUSPEND = 60          -- Suspends after 1 min idle (saves $$$)
-    AUTO_RESUME = TRUE         -- Starts automatically when needed
-    COMMENT = 'For BI and reporting';
+-- You have two INDEPENDENT warehouses:
+-- FMG_ANALYTICS_WH - For BI and reporting
+-- FMG_LOADING_WH - For data loading/ETL
 
-CREATE WAREHOUSE IF NOT EXISTS FMG_LOADING_WH
-    WAREHOUSE_SIZE = 'SMALL'
-    AUTO_SUSPEND = 120
-    AUTO_RESUME = TRUE
-    COMMENT = 'For data loading/ETL';
-
--- Key insight: These are INDEPENDENT - one can be running while the other is off
--- No resource contention between BI users and data pipelines!
+-- Key insight: These run independently - no resource contention!
+SHOW WAREHOUSES LIKE 'FMG%';
 
 -- ============================================================================
 -- STEP 3: INSTANT WAREHOUSE RESIZING (No downtime!)
@@ -55,66 +44,31 @@ CREATE WAREHOUSE IF NOT EXISTS FMG_LOADING_WH
 ALTER WAREHOUSE FMG_ANALYTICS_WH SET WAREHOUSE_SIZE = 'MEDIUM';
 
 -- Check the change
-SHOW WAREHOUSES LIKE 'FMG%';
+SHOW WAREHOUSES LIKE 'FMG_ANALYTICS%';
 
 -- Scale back down when done
 ALTER WAREHOUSE FMG_ANALYTICS_WH SET WAREHOUSE_SIZE = 'XSMALL';
 
--- ============================================================================
--- STEP 4: GRANT PRIVILEGES (Easy & Intuitive)
--- ============================================================================
-
--- Create database and schema
-CREATE DATABASE IF NOT EXISTS FMG_DATA;
-CREATE SCHEMA IF NOT EXISTS FMG_DATA.PRODUCTION;
-
--- ADMIN: Full access
-GRANT ALL ON DATABASE FMG_DATA TO ROLE FMG_ADMIN;
-GRANT ALL ON SCHEMA FMG_DATA.PRODUCTION TO ROLE FMG_ADMIN;
-GRANT USAGE ON WAREHOUSE FMG_ANALYTICS_WH TO ROLE FMG_ADMIN;
-GRANT USAGE ON WAREHOUSE FMG_LOADING_WH TO ROLE FMG_ADMIN;
-
--- ANALYST: Read-only (SELECT only, no INSERT/UPDATE/DELETE)
-GRANT USAGE ON DATABASE FMG_DATA TO ROLE FMG_ANALYST;
-GRANT USAGE ON SCHEMA FMG_DATA.PRODUCTION TO ROLE FMG_ANALYST;
-GRANT SELECT ON ALL TABLES IN SCHEMA FMG_DATA.PRODUCTION TO ROLE FMG_ANALYST;
-GRANT SELECT ON FUTURE TABLES IN SCHEMA FMG_DATA.PRODUCTION TO ROLE FMG_ANALYST;
-GRANT USAGE ON WAREHOUSE FMG_ANALYTICS_WH TO ROLE FMG_ANALYST;
-
--- ENGINEER: Read + Write
-GRANT USAGE ON DATABASE FMG_DATA TO ROLE FMG_ENGINEER;
-GRANT USAGE ON SCHEMA FMG_DATA.PRODUCTION TO ROLE FMG_ENGINEER;
-GRANT ALL ON ALL TABLES IN SCHEMA FMG_DATA.PRODUCTION TO ROLE FMG_ENGINEER;
-GRANT ALL ON FUTURE TABLES IN SCHEMA FMG_DATA.PRODUCTION TO ROLE FMG_ENGINEER;
-GRANT USAGE ON WAREHOUSE FMG_LOADING_WH TO ROLE FMG_ENGINEER;
+-- 🎯 Key insight: Resize takes seconds, queries keep running!
 
 -- ============================================================================
--- STEP 5: CREATE SAMPLE DATA
+-- STEP 4: EXPLORE THE DATA
 -- ============================================================================
 USE ROLE FMG_ADMIN;
 USE WAREHOUSE FMG_ANALYTICS_WH;
-USE SCHEMA FMG_DATA.PRODUCTION;
+USE SCHEMA FMG_LABS.PRODUCTION;
 
--- Create customers table
-CREATE OR REPLACE TABLE CUSTOMERS (
-    customer_id VARCHAR(20),
-    company_name VARCHAR(200),
-    segment VARCHAR(50),
-    mrr DECIMAL(10,2),
-    health_score INT,
-    created_date DATE
-);
+-- See FMG customer data
+SELECT * FROM CUSTOMERS ORDER BY mrr DESC;
 
--- Insert sample FMG customers
-INSERT INTO CUSTOMERS VALUES
-    ('C001', 'Acme Financial Advisors', 'Enterprise', 2500.00, 85, '2022-01-15'),
-    ('C002', 'Summit Wealth Management', 'Mid-Market', 899.00, 72, '2022-03-20'),
-    ('C003', 'Peak Advisory Group', 'SMB', 299.00, 91, '2023-06-01'),
-    ('C004', 'Horizon Financial', 'Enterprise', 3200.00, 68, '2021-11-10'),
-    ('C005', 'Cascade Investments', 'Mid-Market', 599.00, 88, '2023-01-25');
+-- Revenue by segment
+SELECT segment, COUNT(*) AS customers, SUM(mrr) AS total_mrr
+FROM CUSTOMERS
+GROUP BY segment
+ORDER BY total_mrr DESC;
 
 -- ============================================================================
--- STEP 6: TEST ROLE PERMISSIONS
+-- STEP 5: TEST ROLE PERMISSIONS
 -- ============================================================================
 
 -- Test as ANALYST (read-only)
@@ -123,12 +77,12 @@ USE SECONDARY ROLES NONE;  -- Important: isolate to just this role
 USE WAREHOUSE FMG_ANALYTICS_WH;
 
 -- ✅ This works (SELECT)
-SELECT segment, COUNT(*) as customers, SUM(mrr) as total_mrr
-FROM FMG_DATA.PRODUCTION.CUSTOMERS
+SELECT segment, COUNT(*) AS customers, SUM(mrr) AS total_mrr
+FROM FMG_LABS.PRODUCTION.CUSTOMERS
 GROUP BY segment;
 
--- ❌ This would FAIL (uncomment to test)
--- INSERT INTO FMG_DATA.PRODUCTION.CUSTOMERS VALUES ('TEST', 'Test', 'SMB', 100, 50, CURRENT_DATE());
+-- ❌ This should FAIL (uncomment to test)
+-- INSERT INTO FMG_LABS.PRODUCTION.CUSTOMERS VALUES ('TEST', 'Test', 'SMB', 'RIA', 100, 50, CURRENT_DATE());
 
 -- Test as ENGINEER (read + write)
 USE ROLE FMG_ENGINEER;
@@ -136,11 +90,11 @@ USE SECONDARY ROLES NONE;
 USE WAREHOUSE FMG_LOADING_WH;
 
 -- ✅ This works (INSERT)
-INSERT INTO FMG_DATA.PRODUCTION.CUSTOMERS VALUES 
-    ('C006', 'Alpine Advisors', 'SMB', 199.00, 95, CURRENT_DATE());
+INSERT INTO FMG_LABS.PRODUCTION.CUSTOMERS VALUES 
+    ('C009', 'New Advisory Firm', 'SMB', 'RIA', 299.00, 90, CURRENT_DATE());
 
--- Verify
-SELECT * FROM FMG_DATA.PRODUCTION.CUSTOMERS;
+-- Verify the insert
+SELECT * FROM FMG_LABS.PRODUCTION.CUSTOMERS WHERE customer_id = 'C009';
 
 -- ============================================================================
 -- 🎉 LAB 1 COMPLETE!
@@ -148,16 +102,17 @@ SELECT * FROM FMG_DATA.PRODUCTION.CUSTOMERS;
 /*
   What you just saw:
   
-  ✅ Created 3 roles with different privileges in seconds
-  ✅ Created 2 independent warehouses (separation of compute)
+  ✅ Two independent warehouses (separation of compute)
   ✅ Resized a warehouse instantly with zero downtime
-  ✅ Set up RBAC with simple GRANT statements
-  ✅ Tested that permissions work correctly
+  ✅ RBAC in action - analyst can read, engineer can write
+  ✅ Simple GRANT statements control everything
   
   Key Snowflake Benefits:
   • Role-based security is intuitive and fast
   • Compute is separate from storage - scale independently
   • No resource contention between workloads
   • Pay only for what you use (auto-suspend)
+  
+  Next: Lab 2 - Governance & FinOps
 */
 
