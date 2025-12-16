@@ -84,12 +84,10 @@ GRANT ROLE FMG_DATA_SCIENTIST TO USER FMG_DEMO_DS;
 GRANT ROLE FMG_VIEWER TO USER FMG_DEMO_EXEC;
 
 -- Grant your current user access to FMG_ADMIN for testing
--- Replace YOUR_USERNAME with your actual Snowflake username
--- GRANT ROLE FMG_ADMIN TO USER YOUR_USERNAME;
-SELECT 'Run: GRANT ROLE FMG_ADMIN TO USER ' || CURRENT_USER() AS GRANT_COMMAND;
+--GRANT ROLE FMG_ADMIN TO USER IDENTIFIER($CURRENT_USER);
 
 -- Verify
-SHOW USERS LIKE 'FMG_DEMO%';
+SHOW USERS LIKE 'FMG_DEMO%'; 
 
 -- ============================================================================
 -- SECTION 4: CREATE SERVICE ACCOUNT ROLES
@@ -142,6 +140,10 @@ SELECT COUNT(*) AS customer_count FROM FMG_PRODUCTION.RAW.CUSTOMERS;
 SELECT segment, COUNT(*) AS customers
 FROM FMG_PRODUCTION.RAW.CUSTOMERS
 GROUP BY segment;
+
+
+-- This would FAIL (analysts are read-only):
+INSERT INTO FMG_PRODUCTION.RAW.CUSTOMERS (customer_id) VALUES ('TEST');
 
 -- This SHOULD FAIL (analysts are read-only):
 -- Uncomment to test - you should get "Insufficient privileges" error

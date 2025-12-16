@@ -271,7 +271,7 @@ SHOW GRANTS ON TABLE FMG_PRODUCTION.RAW.CUSTOMERS;
 
 -- Check what roles your current user has (replace YOUR_USERNAME)
 -- SHOW GRANTS TO USER YOUR_USERNAME;
-SELECT CURRENT_USER() AS YOUR_USERNAME;
+SELECT CURRENT_USER() AS John;
 
 -- ============================================================================
 -- SETUP COMPLETE!

@@ -43,7 +43,7 @@ USE WAREHOUSE FMG_DEV_XS;
 SELECT 
     query_start_time,
     user_name,
-    query_type,
+    --query_type,
     -- Objects that were directly accessed
     direct_objects_accessed,
     -- Base tables behind views
