@@ -208,6 +208,7 @@ GRANT USAGE ON WAREHOUSE FMG_ML_L TO ROLE FMG_DATA_SCIENTIST;
 -- Switch to analyst role
 USE ROLE FMG_ANALYST;
 USE WAREHOUSE FMG_DEV_XS;
+USE SECONDARY ROLES NONE;  -- Only use FMG_ANALYST privileges
 
 -- This should work (read access)
 SELECT COUNT(*) AS customer_count 

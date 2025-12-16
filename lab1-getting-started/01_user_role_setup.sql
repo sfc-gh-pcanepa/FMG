@@ -130,9 +130,10 @@ GRANT USAGE ON WAREHOUSE FMG_ANALYTICS_M TO ROLE FMG_SVC_BI;
 -- SECTION 5: TEST ROLE ACCESS
 -- ============================================================================
 
--- Test as FMG_ANALYST
+-- Test as FMG_ANALYST (read-only)
 USE ROLE FMG_ANALYST;
 USE WAREHOUSE FMG_DEV_XS;
+USE SECONDARY ROLES NONE;  -- IMPORTANT: Only use FMG_ANALYST privileges
 
 -- Should work: Read from production
 SELECT COUNT(*) AS customer_count FROM FMG_PRODUCTION.RAW.CUSTOMERS;
@@ -142,11 +143,13 @@ SELECT segment, COUNT(*) AS customers
 FROM FMG_PRODUCTION.RAW.CUSTOMERS
 GROUP BY segment;
 
--- This would FAIL (analysts are read-only):
--- INSERT INTO FMG_PRODUCTION.RAW.CUSTOMERS (customer_id) VALUES ('TEST');
+-- This SHOULD FAIL (analysts are read-only):
+-- Uncomment to test - you should get "Insufficient privileges" error
+-- INSERT INTO FMG_PRODUCTION.RAW.CUSTOMERS (customer_id) VALUES ('TEST-SHOULD-FAIL');
 
--- Test as FMG_ADMIN
+-- Test as FMG_ADMIN (full access)
 USE ROLE FMG_ADMIN;
+USE SECONDARY ROLES NONE;
 
 -- Should work: Full access
 SELECT account_status, COUNT(*) AS customers
