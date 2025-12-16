@@ -164,13 +164,17 @@ GRANT ALL PRIVILEGES ON ALL SCHEMAS IN DATABASE FMG_PRODUCTION TO ROLE FMG_ADMIN
 GRANT ALL PRIVILEGES ON ALL SCHEMAS IN DATABASE FMG_DEVELOPMENT TO ROLE FMG_ADMIN;
 GRANT ALL PRIVILEGES ON ALL SCHEMAS IN DATABASE FMG_ANALYTICS TO ROLE FMG_ADMIN;
 
--- FMG_ANALYST gets read access to production and analytics
+-- FMG_ANALYST gets read-ONLY access to production and analytics
 GRANT USAGE ON DATABASE FMG_PRODUCTION TO ROLE FMG_ANALYST;
 GRANT USAGE ON DATABASE FMG_ANALYTICS TO ROLE FMG_ANALYST;
 GRANT USAGE ON ALL SCHEMAS IN DATABASE FMG_PRODUCTION TO ROLE FMG_ANALYST;
 GRANT USAGE ON ALL SCHEMAS IN DATABASE FMG_ANALYTICS TO ROLE FMG_ANALYST;
 GRANT SELECT ON ALL TABLES IN DATABASE FMG_PRODUCTION TO ROLE FMG_ANALYST;
 GRANT SELECT ON ALL TABLES IN DATABASE FMG_ANALYTICS TO ROLE FMG_ANALYST;
+
+-- Explicitly REVOKE write permissions from FMG_ANALYST (in case of inheritance issues)
+REVOKE INSERT, UPDATE, DELETE ON ALL TABLES IN DATABASE FMG_PRODUCTION FROM ROLE FMG_ANALYST;
+REVOKE INSERT, UPDATE, DELETE ON ALL TABLES IN DATABASE FMG_ANALYTICS FROM ROLE FMG_ANALYST;
 
 -- FMG_ENGINEER gets access to development and production
 GRANT USAGE ON DATABASE FMG_PRODUCTION TO ROLE FMG_ENGINEER;
@@ -239,12 +243,39 @@ SHOW WAREHOUSES LIKE 'FMG%';
 SHOW ROLES LIKE 'FMG%';
 
 -- Verify role grants
-SHOW GRANTS ON ROLE FMG_ADMIN;
 SHOW GRANTS TO ROLE FMG_ANALYST;
+
+-- ============================================================================
+-- STEP 11: Re-apply Grants After Data Setup (RUN THIS AFTER 01_synthetic_data_setup.sql)
+-- ============================================================================
+-- If you've already run the synthetic data setup, run this section to ensure
+-- proper permissions on the newly created tables:
+
+-- Re-grant SELECT to analyst (for tables created after initial setup)
+GRANT SELECT ON ALL TABLES IN DATABASE FMG_PRODUCTION TO ROLE FMG_ANALYST;
+GRANT SELECT ON ALL TABLES IN DATABASE FMG_ANALYTICS TO ROLE FMG_ANALYST;
+
+-- Explicitly revoke write permissions
+REVOKE INSERT, UPDATE, DELETE ON ALL TABLES IN DATABASE FMG_PRODUCTION FROM ROLE FMG_ANALYST;
+REVOKE INSERT, UPDATE, DELETE ON ALL TABLES IN DATABASE FMG_ANALYTICS FROM ROLE FMG_ANALYST;
+
+-- Transfer table ownership to SYSADMIN (so user's personal ownership doesn't grant access)
+GRANT OWNERSHIP ON ALL TABLES IN SCHEMA FMG_PRODUCTION.RAW TO ROLE SYSADMIN COPY CURRENT GRANTS;
+
+-- ============================================================================
+-- STEP 12: Verify Permissions (Diagnostic)
+-- ============================================================================
+
+-- Check what grants FMG_ANALYST has on a specific table
+SHOW GRANTS ON TABLE FMG_PRODUCTION.RAW.CUSTOMERS;
+
+-- Check what roles your current user has
+SHOW GRANTS TO USER IDENTIFIER($CURRENT_USER);
 
 -- ============================================================================
 -- SETUP COMPLETE!
 -- Next Step: Run 01_synthetic_data_setup.sql to generate sample data
+--            Then re-run STEP 11 above to lock down permissions
 -- ============================================================================
 
 SELECT '✅ FMG Environment Setup Complete!' AS STATUS,
