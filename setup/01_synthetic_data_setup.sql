@@ -17,6 +17,29 @@ USE SCHEMA RAW;
 USE WAREHOUSE FMG_DEV_XS;
 
 -- ============================================================================
+-- STEP 1.5: Clean Slate (Truncate existing data for re-runs)
+-- ============================================================================
+-- Uncomment the following block to truncate all tables before re-running
+
+TRUNCATE TABLE IF EXISTS NPS_RESPONSES;
+TRUNCATE TABLE IF EXISTS SUPPORT_TICKETS;
+TRUNCATE TABLE IF EXISTS CUSTOMER_HEALTH_SCORES;
+TRUNCATE TABLE IF EXISTS PLATFORM_USAGE_DAILY;
+TRUNCATE TABLE IF EXISTS SALES_OPPORTUNITIES;
+TRUNCATE TABLE IF EXISTS SALES_LEADS;
+TRUNCATE TABLE IF EXISTS SUBSCRIPTIONS;
+TRUNCATE TABLE IF EXISTS USERS;
+TRUNCATE TABLE IF EXISTS CUSTOMERS;
+
+-- Reset sequences (if they exist)
+DROP SEQUENCE IF EXISTS customer_seq;
+DROP SEQUENCE IF EXISTS user_seq;
+DROP SEQUENCE IF EXISTS subscription_seq;
+DROP SEQUENCE IF EXISTS ticket_seq;
+DROP SEQUENCE IF EXISTS lead_seq;
+DROP SEQUENCE IF EXISTS opp_seq;
+
+-- ============================================================================
 -- STEP 2: Create Customer/Account Tables
 -- ============================================================================
 
@@ -395,17 +418,33 @@ last_names AS (SELECT * FROM (VALUES
     ('Thomas'), ('Taylor'), ('Moore'), ('Jackson'), ('Martin'), ('Lee'), ('Perez'), ('Thompson'),
     ('White'), ('Harris'), ('Sanchez'), ('Clark'), ('Ramirez'), ('Lewis'), ('Robinson')
 ) AS t(lname)),
-roles AS (SELECT * FROM (VALUES ('Admin', 0.15), ('Advisor', 0.60), ('Staff', 0.20), ('Compliance Officer', 0.05)) AS t(role, weight)),
+roles AS (SELECT * FROM (VALUES ('Admin'), ('Advisor'), ('Advisor'), ('Advisor'), ('Staff'), ('Compliance Officer')) AS t(role)),
 titles AS (SELECT * FROM (VALUES 
     ('Financial Advisor'), ('Senior Advisor'), ('Wealth Manager'), ('Client Relationship Manager'),
     ('Practice Manager'), ('Operations Manager'), ('Administrative Assistant'), ('Compliance Manager'),
     ('Partner'), ('Managing Director'), ('Vice President'), ('Associate Advisor')
-) AS t(title))
+) AS t(title)),
+customer_users AS (
+    SELECT 
+        c.customer_id,
+        c.company_name,
+        c.segment,
+        c.created_date,
+        c.account_status,
+        ROW_NUMBER() OVER (PARTITION BY c.customer_id ORDER BY RANDOM()) AS user_num,
+        CASE c.segment 
+            WHEN 'SMB' THEN UNIFORM(2, 5, RANDOM())
+            WHEN 'Mid-Market' THEN UNIFORM(4, 8, RANDOM())
+            ELSE UNIFORM(6, 15, RANDOM())
+        END AS max_users
+    FROM CUSTOMERS c
+    CROSS JOIN TABLE(GENERATOR(ROWCOUNT => 15)) g
+)
 SELECT
-    'USER-' || LPAD(user_seq.NEXTVAL::VARCHAR, 6, '0') AS user_id,
-    c.customer_id,
-    LOWER(fn.fname) || '.' || LOWER(ln.lname) || '@' || 
-        LOWER(REPLACE(REPLACE(c.company_name, ' ', ''), '''', '')) || '.com' AS email,
+    'USER-' || LPAD(ROW_NUMBER() OVER (ORDER BY cu.customer_id, cu.user_num)::VARCHAR, 6, '0') AS user_id,
+    cu.customer_id,
+    LOWER(fn.fname) || '.' || LOWER(ln.lname) || cu.user_num || '@' || 
+        LOWER(REGEXP_REPLACE(cu.company_name, '[^a-zA-Z0-9]', '')) || '.com' AS email,
     fn.fname AS first_name,
     ln.lname AS last_name,
     r.role,
@@ -413,93 +452,90 @@ SELECT
     '(' || LPAD(UNIFORM(200, 999, RANDOM())::VARCHAR, 3, '0') || ') ' ||
         LPAD(UNIFORM(200, 999, RANDOM())::VARCHAR, 3, '0') || '-' ||
         LPAD(UNIFORM(1000, 9999, RANDOM())::VARCHAR, 4, '0') AS phone,
-    DATEADD('day', UNIFORM(0, 365, RANDOM()), c.created_date) AS created_date,
-    CASE WHEN c.account_status = 'Active' 
+    DATEADD('day', UNIFORM(0, 365, RANDOM()), cu.created_date) AS created_date,
+    CASE WHEN cu.account_status = 'Active' 
         THEN DATEADD('hour', -UNIFORM(1, 720, RANDOM()), CURRENT_TIMESTAMP()) 
         ELSE DATEADD('day', -UNIFORM(30, 180, RANDOM()), CURRENT_TIMESTAMP()) 
     END AS last_login_date,
     UNIFORM(5, 500, RANDOM()) AS login_count,
-    user_num = 1 AS is_primary_contact,
+    cu.user_num = 1 AS is_primary_contact,
     CASE 
-        WHEN c.account_status = 'Active' THEN (CASE WHEN RANDOM() < 0.92 THEN 'Active' ELSE 'Inactive' END)
+        WHEN cu.account_status = 'Active' THEN (CASE WHEN RANDOM() < 0.92 THEN 'Active' ELSE 'Inactive' END)
         ELSE 'Inactive'
     END AS user_status,
     RANDOM() < 0.95 AS email_verified,
     RANDOM() < 0.70 AS mfa_enabled,
     CURRENT_TIMESTAMP() AS _loaded_at
-FROM 
-    CUSTOMERS c
-    CROSS JOIN LATERAL (
-        SELECT ROW_NUMBER() OVER (ORDER BY SEQ4()) AS user_num 
-        FROM TABLE(GENERATOR(ROWCOUNT => 10))
-        LIMIT CASE c.segment 
-            WHEN 'SMB' THEN UNIFORM(2, 5, RANDOM())
-            WHEN 'Mid-Market' THEN UNIFORM(4, 8, RANDOM())
-            ELSE UNIFORM(6, 15, RANDOM())
-        END
-    ) nums
-    CROSS JOIN LATERAL (SELECT fname FROM first_names ORDER BY RANDOM() LIMIT 1) fn
-    CROSS JOIN LATERAL (SELECT lname FROM last_names ORDER BY RANDOM() LIMIT 1) ln
-    CROSS JOIN LATERAL (SELECT role FROM roles ORDER BY RANDOM() LIMIT 1) r
-    CROSS JOIN LATERAL (SELECT title FROM titles ORDER BY RANDOM() LIMIT 1) t;
+FROM customer_users cu
+CROSS JOIN (SELECT fname FROM first_names ORDER BY RANDOM() LIMIT 1) fn
+CROSS JOIN (SELECT lname FROM last_names ORDER BY RANDOM() LIMIT 1) ln
+CROSS JOIN (SELECT role FROM roles ORDER BY RANDOM() LIMIT 1) r
+CROSS JOIN (SELECT title FROM titles ORDER BY RANDOM() LIMIT 1) t
+WHERE cu.user_num <= cu.max_users;
 
 -- Generate Subscriptions
 INSERT INTO SUBSCRIPTIONS
 WITH 
 products AS (SELECT * FROM (VALUES 
-    ('Marketing Suite', 'Starter', 149, 0.30),
-    ('Marketing Suite', 'Professional', 299, 0.45),
-    ('Marketing Suite', 'Enterprise', 599, 0.20),
-    ('Website Pro', 'Starter', 99, 0.25),
-    ('Website Pro', 'Professional', 199, 0.50),
-    ('Website Pro', 'Enterprise', 399, 0.20),
-    ('MyRepChat', 'Starter', 49, 0.35),
-    ('MyRepChat', 'Professional', 99, 0.45),
-    ('MyRepChat', 'Enterprise', 199, 0.15),
-    ('Do It For Me', 'Standard', 499, 0.40),
-    ('Do It For Me', 'Premium', 899, 0.35),
-    ('Do It For Me', 'Elite', 1499, 0.15)
-) AS t(product_name, plan_tier, base_price, weight))
+    ('Marketing Suite', 'Starter', 149),
+    ('Marketing Suite', 'Professional', 299),
+    ('Marketing Suite', 'Enterprise', 599),
+    ('Website Pro', 'Starter', 99),
+    ('Website Pro', 'Professional', 199),
+    ('Website Pro', 'Enterprise', 399),
+    ('MyRepChat', 'Starter', 49),
+    ('MyRepChat', 'Professional', 99),
+    ('MyRepChat', 'Enterprise', 199),
+    ('Do It For Me', 'Standard', 499),
+    ('Do It For Me', 'Premium', 899),
+    ('Do It For Me', 'Elite', 1499)
+) AS t(product_name, plan_tier, base_price)),
+cancellation_reasons AS (SELECT * FROM (VALUES 
+    ('Switched to competitor'), ('Budget constraints'), ('Not using the product'),
+    ('Missing features'), ('Poor support experience'), ('Company closed')
+) AS t(reason)),
+customer_products AS (
+    SELECT 
+        c.customer_id,
+        c.segment,
+        c.created_date,
+        c.account_status,
+        p.product_name,
+        p.plan_tier,
+        p.base_price,
+        ROW_NUMBER() OVER (PARTITION BY c.customer_id ORDER BY RANDOM()) AS product_num,
+        CASE c.segment WHEN 'Enterprise' THEN 4 WHEN 'Mid-Market' THEN 3 ELSE 2 END AS max_products
+    FROM CUSTOMERS c
+    CROSS JOIN products p
+)
 SELECT
-    'SUB-' || LPAD(subscription_seq.NEXTVAL::VARCHAR, 6, '0') AS subscription_id,
-    c.customer_id,
-    p.product_name,
-    p.plan_tier,
+    'SUB-' || LPAD(ROW_NUMBER() OVER (ORDER BY cp.customer_id, cp.product_num)::VARCHAR, 6, '0') AS subscription_id,
+    cp.customer_id,
+    cp.product_name,
+    cp.plan_tier,
     CASE WHEN RANDOM() < 0.70 THEN 'Annual' ELSE 'Monthly' END AS billing_frequency,
-    DATEADD('day', UNIFORM(0, 90, RANDOM()), c.created_date) AS start_date,
-    CASE WHEN c.account_status = 'Churned' 
-        THEN DATEADD('month', UNIFORM(3, 24, RANDOM()), DATEADD('day', UNIFORM(0, 90, RANDOM()), c.created_date))
+    DATEADD('day', UNIFORM(0, 90, RANDOM()), cp.created_date) AS start_date,
+    CASE WHEN cp.account_status = 'Churned' 
+        THEN DATEADD('month', UNIFORM(3, 24, RANDOM()), DATEADD('day', UNIFORM(0, 90, RANDOM()), cp.created_date))
         ELSE NULL 
     END AS end_date,
-    DATEADD('year', 1, DATEADD('day', UNIFORM(0, 90, RANDOM()), c.created_date)) AS renewal_date,
-    CASE c.account_status
+    DATEADD('year', 1, DATEADD('day', UNIFORM(0, 90, RANDOM()), cp.created_date)) AS renewal_date,
+    CASE cp.account_status
         WHEN 'Active' THEN 'Active'
         WHEN 'Churned' THEN 'Cancelled'
         WHEN 'Paused' THEN 'Pending'
         ELSE 'Active'
     END AS status,
-    p.base_price * (1 - COALESCE(CASE WHEN c.segment = 'Enterprise' THEN UNIFORM(0.10, 0.25, RANDOM()) ELSE 0 END, 0)) AS mrr_amount,
-    p.base_price * 12 * (1 - COALESCE(CASE WHEN c.segment = 'Enterprise' THEN UNIFORM(0.10, 0.25, RANDOM()) ELSE 0 END, 0)) AS arr_amount,
-    CASE WHEN c.segment = 'Enterprise' THEN UNIFORM(10, 25, RANDOM()) ELSE 0 END AS discount_percent,
+    cp.base_price * (1 - CASE WHEN cp.segment = 'Enterprise' THEN UNIFORM(0.10, 0.25, RANDOM()) ELSE 0 END) AS mrr_amount,
+    cp.base_price * 12 * (1 - CASE WHEN cp.segment = 'Enterprise' THEN UNIFORM(0.10, 0.25, RANDOM()) ELSE 0 END) AS arr_amount,
+    CASE WHEN cp.segment = 'Enterprise' THEN UNIFORM(10, 25, RANDOM()) ELSE 0 END AS discount_percent,
     CASE WHEN RANDOM() < 0.70 THEN 12 ELSE 24 END AS contract_term_months,
     RANDOM() < 0.80 AS auto_renew,
-    CASE WHEN c.account_status = 'Churned' 
-        THEN (SELECT * FROM (VALUES 
-            ('Switched to competitor'), ('Budget constraints'), ('Not using the product'),
-            ('Missing features'), ('Poor support experience'), ('Company closed')
-        ) ORDER BY RANDOM() LIMIT 1)
-        ELSE NULL 
-    END AS cancellation_reason,
+    CASE WHEN cp.account_status = 'Churned' THEN cr.reason ELSE NULL END AS cancellation_reason,
     CURRENT_TIMESTAMP() AS _loaded_at
-FROM 
-    CUSTOMERS c
-    CROSS JOIN LATERAL (
-        SELECT product_name, plan_tier, base_price 
-        FROM products 
-        WHERE RANDOM() < weight
-        ORDER BY RANDOM() 
-        LIMIT CASE c.segment WHEN 'Enterprise' THEN 4 WHEN 'Mid-Market' THEN 3 ELSE 2 END
-    ) p;
+FROM customer_products cp
+LEFT JOIN (SELECT reason FROM cancellation_reasons ORDER BY RANDOM() LIMIT 1) cr ON cp.account_status = 'Churned'
+WHERE cp.product_num <= cp.max_products;
 
 -- Generate Platform Usage Daily (last 90 days)
 INSERT INTO PLATFORM_USAGE_DAILY
