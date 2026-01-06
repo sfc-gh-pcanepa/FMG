@@ -126,15 +126,22 @@ INSERT INTO CUSTOMERS
 WITH customer_gen AS (
     SELECT 
         ROW_NUMBER() OVER (ORDER BY SEQ4()) AS rn,
-        UNIFORM(1, 50, RANDOM()) AS prefix_idx,
-        UNIFORM(1, 20, RANDOM()) AS middle_idx,
-        UNIFORM(1, 15, RANDOM()) AS suffix_idx,
-        UNIFORM(1, 3, RANDOM()) AS segment_idx,
-        UNIFORM(1, 8, RANDOM()) AS industry_idx,
-        UNIFORM(1, 50, RANDOM()) AS state_idx,
-        UNIFORM(0, 100, RANDOM()) AS health_score,
-        UNIFORM(1, 1500, RANDOM()) AS days_ago
+        SEQ4() AS seq_val
     FROM TABLE(GENERATOR(ROWCOUNT => 100000))
+),
+customer_data AS (
+    SELECT
+        rn,
+        ABS(MOD(HASH(rn || 'prefix'), 50)) + 1 AS prefix_idx,
+        ABS(MOD(HASH(rn || 'middle'), 20)) + 1 AS middle_idx,
+        ABS(MOD(HASH(rn || 'suffix'), 15)) + 1 AS suffix_idx,
+        ABS(MOD(HASH(rn || 'segment'), 3)) + 1 AS segment_idx,
+        ABS(MOD(HASH(rn || 'industry'), 8)) + 1 AS industry_idx,
+        ABS(MOD(HASH(rn || 'state'), 50)) + 1 AS state_idx,
+        ABS(MOD(HASH(rn || 'health'), 101)) AS health_score,
+        ABS(MOD(HASH(rn || 'days'), 1500)) + 1 AS days_ago,
+        ABS(MOD(HASH(rn || 'mrr'), 8000)) AS mrr_variance
+    FROM customer_gen
 ),
 ref AS (SELECT * FROM REF_DATA)
 SELECT 
@@ -145,13 +152,13 @@ SELECT
     ref.segments[segment_idx-1]::VARCHAR AS segment,
     ref.industries[industry_idx-1]::VARCHAR AS industry,
     CASE ref.segments[segment_idx-1]::VARCHAR
-        WHEN 'Enterprise' THEN UNIFORM(2000, 10000, RANDOM())
-        WHEN 'Mid-Market' THEN UNIFORM(500, 2500, RANDOM())
-        ELSE UNIFORM(99, 800, RANDOM())
+        WHEN 'Enterprise' THEN 2000 + ABS(MOD(mrr_variance, 8000))
+        WHEN 'Mid-Market' THEN 500 + ABS(MOD(mrr_variance, 2000))
+        ELSE 99 + ABS(MOD(mrr_variance, 701))
     END AS mrr,
     health_score,
     DATEADD('day', -days_ago, CURRENT_DATE()) AS created_date
-FROM customer_gen, ref;
+FROM customer_data, ref;
 
 SELECT 'CUSTOMERS generated: ' || COUNT(*) AS status FROM CUSTOMERS;
 
@@ -179,23 +186,25 @@ SELECT
     ARRAY_CONSTRUCT('Admin', 'Advisor', 'Analyst', 'Compliance', 'Associate', 'Manager', 'Director', 'VP') AS roles;
 
 INSERT INTO USERS
-WITH user_gen AS (
+WITH user_multiplier AS (
+    -- Generate 2-3 users per customer using a simple cross join
+    SELECT 1 AS user_num UNION ALL SELECT 2 UNION ALL SELECT 3
+),
+user_gen AS (
     SELECT 
         c.customer_id,
-        LOWER(REPLACE(c.company_name, ' ', '')) AS email_domain,
-        u.user_num,
-        UNIFORM(1, 60, RANDOM()) AS first_idx,
-        UNIFORM(1, 50, RANDOM()) AS last_idx,
-        UNIFORM(1, 8, RANDOM()) AS role_idx,
-        UNIFORM(100, 999, RANDOM()) AS area_code,
-        UNIFORM(100, 999, RANDOM()) AS phone_prefix,
-        UNIFORM(1000, 9999, RANDOM()) AS phone_suffix
-    FROM CUSTOMERS c,
-    LATERAL (
-        SELECT ROW_NUMBER() OVER (ORDER BY SEQ4()) AS user_num
-        FROM TABLE(GENERATOR(ROWCOUNT => 3))
-        WHERE SEQ4() <= UNIFORM(2, 3, RANDOM(c.customer_id::INT))
-    ) u
+        LOWER(REPLACE(REPLACE(c.company_name, ' ', ''), '''', '')) AS email_domain,
+        m.user_num,
+        ABS(MOD(HASH(c.customer_id || m.user_num || 'first'), 60)) + 1 AS first_idx,
+        ABS(MOD(HASH(c.customer_id || m.user_num || 'last'), 50)) + 1 AS last_idx,
+        ABS(MOD(HASH(c.customer_id || m.user_num || 'role'), 8)) + 1 AS role_idx,
+        100 + ABS(MOD(HASH(c.customer_id || m.user_num || 'area'), 900)) AS area_code,
+        100 + ABS(MOD(HASH(c.customer_id || m.user_num || 'prefix'), 900)) AS phone_prefix,
+        1000 + ABS(MOD(HASH(c.customer_id || m.user_num || 'suffix'), 9000)) AS phone_suffix
+    FROM CUSTOMERS c
+    CROSS JOIN user_multiplier m
+    -- Keep 2-3 users per customer based on hash of customer_id
+    WHERE m.user_num <= 2 + ABS(MOD(HASH(c.customer_id), 2))
 ),
 ref AS (SELECT * FROM REF_NAMES)
 SELECT 
@@ -221,19 +230,21 @@ SELECT
     ARRAY_CONSTRUCT('Active', 'Active', 'Active', 'Active', 'Active', 'Active', 'Active', 'Cancelled', 'Paused') AS statuses;
 
 INSERT INTO SUBSCRIPTIONS
-WITH sub_gen AS (
+WITH sub_multiplier AS (
+    SELECT 1 AS sub_num UNION ALL SELECT 2
+),
+sub_gen AS (
     SELECT 
         c.customer_id,
         c.segment,
         c.created_date,
-        s.sub_num,
-        UNIFORM(1, 8, RANDOM()) AS product_idx,
-        UNIFORM(1, 9, RANDOM()) AS status_idx
-    FROM CUSTOMERS c,
-    LATERAL (
-        SELECT ROW_NUMBER() OVER (ORDER BY SEQ4()) AS sub_num
-        FROM TABLE(GENERATOR(ROWCOUNT => 2))
-    ) s
+        m.sub_num,
+        ABS(MOD(HASH(c.customer_id || m.sub_num || 'prod'), 8)) + 1 AS product_idx,
+        ABS(MOD(HASH(c.customer_id || m.sub_num || 'status'), 9)) + 1 AS status_idx,
+        ABS(MOD(HASH(c.customer_id || m.sub_num || 'mrr'), 2500)) AS mrr_variance,
+        ABS(MOD(HASH(c.customer_id || m.sub_num || 'days'), 30)) AS days_offset
+    FROM CUSTOMERS c
+    CROSS JOIN sub_multiplier m
 ),
 ref AS (SELECT * FROM REF_PRODUCTS)
 SELECT 
@@ -241,12 +252,12 @@ SELECT
     customer_id,
     ref.products[product_idx-1]::VARCHAR AS product,
     CASE segment
-        WHEN 'Enterprise' THEN UNIFORM(500, 3000, RANDOM())
-        WHEN 'Mid-Market' THEN UNIFORM(200, 1000, RANDOM())
-        ELSE UNIFORM(50, 400, RANDOM())
+        WHEN 'Enterprise' THEN 500 + ABS(MOD(mrr_variance, 2500))
+        WHEN 'Mid-Market' THEN 200 + ABS(MOD(mrr_variance, 800))
+        ELSE 50 + ABS(MOD(mrr_variance, 350))
     END AS mrr,
     ref.statuses[status_idx-1]::VARCHAR AS status,
-    DATEADD('day', UNIFORM(0, 30, RANDOM()), created_date) AS start_date
+    DATEADD('day', days_offset, created_date) AS start_date
 FROM sub_gen, ref;
 
 SELECT 'SUBSCRIPTIONS generated: ' || COUNT(*) AS status FROM SUBSCRIPTIONS;
@@ -297,10 +308,12 @@ INSERT INTO CUSTOMER_FEEDBACK
 WITH feedback_gen AS (
     SELECT 
         c.customer_id,
-        UNIFORM(1, 10, RANDOM()) AS nps_score,
-        UNIFORM(1, 365, RANDOM()) AS days_ago
+        ABS(MOD(HASH(c.customer_id || 'nps'), 10)) + 1 AS nps_score,
+        ABS(MOD(HASH(c.customer_id || 'days'), 365)) + 1 AS days_ago,
+        ABS(MOD(HASH(c.customer_id || 'template'), 10)) AS template_idx
     FROM CUSTOMERS c
-    WHERE UNIFORM(1, 100, RANDOM()) <= 50  -- 50% of customers have feedback
+    -- 50% of customers have feedback (based on hash)
+    WHERE ABS(MOD(HASH(c.customer_id), 100)) <= 50
 ),
 ref AS (SELECT * FROM REF_FEEDBACK)
 SELECT 
@@ -308,9 +321,9 @@ SELECT
     customer_id,
     nps_score,
     CASE 
-        WHEN nps_score >= 9 THEN ref.positive_feedback[UNIFORM(0, 9, RANDOM())]::VARCHAR
-        WHEN nps_score >= 7 THEN ref.neutral_feedback[UNIFORM(0, 7, RANDOM())]::VARCHAR
-        ELSE ref.negative_feedback[UNIFORM(0, 7, RANDOM())]::VARCHAR
+        WHEN nps_score >= 9 THEN ref.positive_feedback[MOD(template_idx, 10)]::VARCHAR
+        WHEN nps_score >= 7 THEN ref.neutral_feedback[MOD(template_idx, 8)]::VARCHAR
+        ELSE ref.negative_feedback[MOD(template_idx, 8)]::VARCHAR
     END AS feedback_text,
     DATEADD('day', -days_ago, CURRENT_DATE()) AS submitted_date
 FROM feedback_gen, ref;
