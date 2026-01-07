@@ -57,6 +57,9 @@ CREATE ROLE IF NOT EXISTS FMG_ADMIN;
 GRANT ROLE FMG_ADMIN TO ROLE ACCOUNTADMIN;
 GRANT USAGE ON WAREHOUSE FMG_ANALYTICS_WH TO ROLE FMG_ADMIN;
 GRANT ALL ON DATABASE FMG_LAB3 TO ROLE FMG_ADMIN;
+GRANT ALL ON SCHEMA FMG_LAB3.BRONZE TO ROLE FMG_ADMIN;
+GRANT ALL ON SCHEMA FMG_LAB3.SILVER TO ROLE FMG_ADMIN;
+GRANT ALL ON SCHEMA FMG_LAB3.GOLD TO ROLE FMG_ADMIN;
 
 USE ROLE FMG_ADMIN;
 USE WAREHOUSE FMG_ANALYTICS_WH;
@@ -368,78 +371,102 @@ SELECT 'PROD', COUNT(*) FROM FMG_LAB3.BRONZE.RAW_CUSTOMERS;
     • Data refreshes - load into staging, swap to production
     
     The swap is ATOMIC - no downtime, no partial states!
+    
+    NOTE: SWAP works with regular tables. Dynamic Tables are managed by 
+    Snowflake and can't be swapped - but their source tables can!
 */
 
--- Scenario: We've improved our PRODUCT_METRICS logic in DEV and want to promote to PROD
-
--- First, let's enhance the DEV version with a new column
-USE DATABASE FMG_LAB3_DEV;
-USE SCHEMA GOLD;
-
--- Create an improved version of the Gold table in DEV
-CREATE OR REPLACE TABLE PRODUCT_METRICS_V2 AS
-SELECT 
-    s.product_name,
-    COUNT(DISTINCT s.customer_id) AS customer_count,
-    COUNT(s.subscription_id) AS subscription_count,
-    SUM(CASE WHEN s.status = 'ACTIVE' THEN s.mrr ELSE 0 END) AS active_mrr,
-    SUM(CASE WHEN s.status = 'CANCELLED' THEN s.mrr ELSE 0 END) AS churned_mrr,
-    ROUND(
-        SUM(CASE WHEN s.status = 'CANCELLED' THEN 1 ELSE 0 END) * 100.0 / 
-        NULLIF(COUNT(*), 0), 2
-    ) AS churn_rate_pct,
-    -- NEW: Added revenue tier classification
-    CASE 
-        WHEN SUM(CASE WHEN s.status = 'ACTIVE' THEN s.mrr ELSE 0 END) > 5000 THEN 'HIGH'
-        WHEN SUM(CASE WHEN s.status = 'ACTIVE' THEN s.mrr ELSE 0 END) > 2000 THEN 'MEDIUM'
-        ELSE 'LOW'
-    END AS revenue_tier,
-    CURRENT_TIMESTAMP() AS _refreshed_at
-FROM FMG_LAB3_DEV.SILVER.SUBSCRIPTIONS s
-GROUP BY s.product_name;
-
--- Verify the new table in DEV
-SELECT * FROM FMG_LAB3_DEV.GOLD.PRODUCT_METRICS_V2;
-
--- Now SWAP the tables atomically in PROD!
+-- Scenario: Monthly data refresh - load new customer data into staging, then swap to production
 USE DATABASE FMG_LAB3;
-USE SCHEMA GOLD;
+USE SCHEMA BRONZE;
 
--- First, clone the improved table from DEV to PROD
-CREATE OR REPLACE TABLE PRODUCT_METRICS_NEW CLONE FMG_LAB3_DEV.GOLD.PRODUCT_METRICS_V2;
+-- First, check current record count in production Bronze table
+SELECT 'BEFORE SWAP - Production' AS status, COUNT(*) AS record_count 
+FROM RAW_CUSTOMERS;
 
--- SWAP: Atomically replace the old table with the new one
-ALTER TABLE PRODUCT_METRICS_NEW SWAP WITH PRODUCT_METRICS;
+-- Create a staging table with "new batch" of data (simulating a monthly refresh)
+CREATE OR REPLACE TABLE RAW_CUSTOMERS_STAGING AS
+SELECT * FROM RAW_CUSTOMERS;
 
--- Verify: PROD now has the new schema with revenue_tier column!
-SELECT * FROM FMG_LAB3.GOLD.PRODUCT_METRICS;
+-- Add new records to staging (simulating new data load)
+INSERT INTO RAW_CUSTOMERS_STAGING (_raw_data, _source_system, _ingested_at, _batch_id)
+SELECT 
+    OBJECT_CONSTRUCT(
+        'CUSTOMER_ID', 'C' || LPAD((ROW_NUMBER() OVER (ORDER BY SEQ4()) + 100)::VARCHAR, 6, '0'),
+        'COMPANY_NAME', 'New Batch Company ' || SEQ4(),
+        'SEGMENT', 'Enterprise',
+        'INDUSTRY', 'RIA',
+        'MRR', 5000.00,
+        'HEALTH_SCORE', 85,
+        'CREATED_DATE', CURRENT_DATE()
+    ),
+    'monthly_batch_load',
+    CURRENT_TIMESTAMP(),
+    'batch_2024_monthly_refresh'
+FROM TABLE(GENERATOR(ROWCOUNT => 50));
 
--- The old version is now in PRODUCT_METRICS_NEW (can drop or keep as backup)
--- DROP TABLE PRODUCT_METRICS_NEW;  -- Uncomment to clean up
+-- Verify staging has more records
+SELECT 'STAGING (with new data)' AS status, COUNT(*) AS record_count 
+FROM RAW_CUSTOMERS_STAGING;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- THE SWAP: Atomic cutover with zero downtime!
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- SWAP: Atomically exchange the tables
+ALTER TABLE RAW_CUSTOMERS_STAGING SWAP WITH RAW_CUSTOMERS;
+
+-- Verify: Production now has the new data!
+SELECT 'AFTER SWAP - Production' AS status, COUNT(*) AS record_count 
+FROM RAW_CUSTOMERS;
+
+-- The old production data is now in the STAGING table (backup!)
+SELECT 'AFTER SWAP - Staging (old prod)' AS status, COUNT(*) AS record_count 
+FROM RAW_CUSTOMERS_STAGING;
+
+-- Check the new batch data is now in production
+SELECT _batch_id, COUNT(*) AS records
+FROM RAW_CUSTOMERS
+GROUP BY _batch_id
+ORDER BY _batch_id;
 
 -- 🎯 Key insight: SWAP is atomic - zero downtime, instant cutover!
+-- The Dynamic Tables (Silver/Gold) will automatically refresh from the new Bronze data!
+
+-- Clean up the old staging table (optional - or keep as backup for rollback)
+-- DROP TABLE RAW_CUSTOMERS_STAGING;
+
+-- ROLLBACK DEMO: If something went wrong, swap back!
+-- ALTER TABLE RAW_CUSTOMERS_STAGING SWAP WITH RAW_CUSTOMERS;
 
 /*
     SWAP USE CASES:
     
-    1. BLUE/GREEN DEPLOYMENT:
+    1. MONTHLY DATA REFRESH (just demonstrated!):
+       - Load new data into _STAGING table
+       - Validate the data quality
+       - SWAP with production - instant cutover
+       - Keep old table as backup for rollback
+       
+    2. BLUE/GREEN DEPLOYMENT:
        - Build new version in dev/staging
        - Test thoroughly
        - SWAP to production atomically
        
-    2. LARGE DATA REFRESH:
-       - Load new data into _STAGING table
-       - SWAP with production when complete
-       - No partial states visible to users
-       
     3. SCHEMA MIGRATION:
        - Create new table with updated schema
-       - Backfill data
+       - Backfill data with transformations
        - SWAP to go live instantly
        
-    4. ROLLBACK:
+    4. INSTANT ROLLBACK:
        - Keep old table after swap
-       - If issues, SWAP back immediately
+       - If issues discovered, SWAP back immediately
+       - Zero downtime in either direction!
+       
+    WHY THIS MATTERS FOR MEDALLION:
+    - SWAP the Bronze layer source tables
+    - Dynamic Tables (Silver/Gold) auto-refresh from new Bronze
+    - Entire pipeline updates atomically!
 */
 
 -- ============================================================================

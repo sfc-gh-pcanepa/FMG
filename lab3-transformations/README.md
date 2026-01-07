@@ -79,13 +79,16 @@ SELECT ... FROM SILVER.CUSTOMERS  -- Auto-refreshes end-to-end!
 JOIN SILVER.SUBSCRIPTIONS ...
 ```
 
-### SWAP (Zero-Downtime Deployments)
+### SWAP (Zero-Downtime Data Refresh)
 ```sql
--- Build improved table in DEV
-CREATE TABLE PRODUCT_METRICS_NEW CLONE DEV.GOLD.PRODUCT_METRICS_V2;
+-- Load new data into staging
+CREATE TABLE RAW_CUSTOMERS_STAGING AS SELECT * FROM RAW_CUSTOMERS;
+INSERT INTO RAW_CUSTOMERS_STAGING ...  -- Add new batch
 
 -- Atomic swap - instant cutover, no downtime!
-ALTER TABLE PRODUCT_METRICS_NEW SWAP WITH PRODUCT_METRICS;
+ALTER TABLE RAW_CUSTOMERS_STAGING SWAP WITH RAW_CUSTOMERS;
+
+-- Dynamic Tables auto-refresh from new Bronze data!
 ```
 
 ## Key Takeaways
