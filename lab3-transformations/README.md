@@ -79,16 +79,19 @@ SELECT ... FROM SILVER.CUSTOMERS  -- Auto-refreshes end-to-end!
 JOIN SILVER.SUBSCRIPTIONS ...
 ```
 
-### SWAP (Zero-Downtime Data Refresh)
+### Clone + SWAP (Safe Production Updates)
 ```sql
--- Load new data into staging
-CREATE TABLE RAW_CUSTOMERS_STAGING AS SELECT * FROM RAW_CUSTOMERS;
-INSERT INTO RAW_CUSTOMERS_STAGING ...  -- Add new batch
+-- 1. CLONE: Instant copy of production
+CREATE TABLE RAW_CUSTOMERS_STAGING CLONE RAW_CUSTOMERS;
 
--- Atomic swap - instant cutover, no downtime!
+-- 2. MODIFY: Add new data to staging (production unaffected)
+INSERT INTO RAW_CUSTOMERS_STAGING ...;
+
+-- 3. SWAP: Atomic cutover - zero downtime!
 ALTER TABLE RAW_CUSTOMERS_STAGING SWAP WITH RAW_CUSTOMERS;
 
--- Dynamic Tables auto-refresh from new Bronze data!
+-- 4. ROLLBACK: If needed, swap back instantly!
+-- Old production is still in staging table
 ```
 
 ## Key Takeaways

@@ -362,111 +362,145 @@ SELECT 'PROD', COUNT(*) FROM FMG_LAB3.BRONZE.RAW_CUSTOMERS;
 -- 🎯 Key insight: Clone is instant regardless of data size. Only stores the DELTA.
 
 -- ============================================================================
--- STEP 5b: SWAP TABLES (Blue/Green Deployments!)
+-- STEP 5b: CLONE + SWAP PATTERN (Safe Production Updates!)
 -- ============================================================================
 /*
-    SWAP is perfect for:
-    • Blue/Green deployments - test in dev, swap to prod atomically
-    • Schema migrations - build new table, swap when ready
-    • Data refreshes - load into staging, swap to production
+    CLONE + SWAP is the safest pattern for production updates:
     
-    The swap is ATOMIC - no downtime, no partial states!
+    1. CLONE the production table (instant, zero storage cost)
+    2. Make changes to the clone (add data, transform, test)
+    3. SWAP the clone with production (atomic, zero downtime)
+    4. Keep the old table as instant rollback
     
-    NOTE: SWAP works with regular tables. Dynamic Tables are managed by 
-    Snowflake and can't be swapped - but their source tables can!
+    This combines TWO powerful Snowflake features!
 */
 
--- Scenario: Monthly data refresh - load new customer data into staging, then swap to production
 USE DATABASE FMG_LAB3;
 USE SCHEMA BRONZE;
 
--- First, check current record count in production Bronze table
-SELECT 'BEFORE SWAP - Production' AS status, COUNT(*) AS record_count 
-FROM RAW_CUSTOMERS;
+-- ═══════════════════════════════════════════════════════════════════════════
+-- STEP 1: CLONE - Create an instant copy of production
+-- ═══════════════════════════════════════════════════════════════════════════
 
--- Create a staging table with "new batch" of data (simulating a monthly refresh)
-CREATE OR REPLACE TABLE RAW_CUSTOMERS_STAGING AS
-SELECT * FROM RAW_CUSTOMERS;
+-- Check current production state
+SELECT 'PRODUCTION (before)' AS status, COUNT(*) AS records FROM RAW_CUSTOMERS;
 
--- Add new records to staging (simulating new data load)
+-- CLONE: Instant copy - no data movement, no storage cost!
+CREATE OR REPLACE TABLE RAW_CUSTOMERS_STAGING CLONE RAW_CUSTOMERS;
+
+-- Verify clone is identical (instant!)
+SELECT 'STAGING (cloned)' AS status, COUNT(*) AS records FROM RAW_CUSTOMERS_STAGING;
+
+-- 🎯 Key insight: Clone is instant regardless of table size - 1TB would be just as fast!
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- STEP 2: MODIFY - Make changes to the clone safely
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- Add new batch of customer data to staging (monthly refresh scenario)
 INSERT INTO RAW_CUSTOMERS_STAGING (_raw_data, _source_system, _ingested_at, _batch_id)
 SELECT 
     OBJECT_CONSTRUCT(
-        'CUSTOMER_ID', 'C' || LPAD((ROW_NUMBER() OVER (ORDER BY SEQ4()) + 100)::VARCHAR, 6, '0'),
-        'COMPANY_NAME', 'New Batch Company ' || SEQ4(),
-        'SEGMENT', 'Enterprise',
+        'CUSTOMER_ID', 'C' || LPAD((ROW_NUMBER() OVER (ORDER BY SEQ4()) + 200)::VARCHAR, 6, '0'),
+        'COMPANY_NAME', 'New Customer ' || SEQ4(),
+        'SEGMENT', CASE MOD(SEQ4(), 3) WHEN 0 THEN 'Enterprise' WHEN 1 THEN 'Mid-Market' ELSE 'SMB' END,
         'INDUSTRY', 'RIA',
-        'MRR', 5000.00,
-        'HEALTH_SCORE', 85,
+        'MRR', 1000 + MOD(SEQ4() * 123, 5000),
+        'HEALTH_SCORE', 50 + MOD(SEQ4() * 7, 50),
         'CREATED_DATE', CURRENT_DATE()
     ),
     'monthly_batch_load',
     CURRENT_TIMESTAMP(),
-    'batch_2024_monthly_refresh'
-FROM TABLE(GENERATOR(ROWCOUNT => 50));
+    'batch_2024_004'
+FROM TABLE(GENERATOR(ROWCOUNT => 100));
 
--- Verify staging has more records
-SELECT 'STAGING (with new data)' AS status, COUNT(*) AS record_count 
-FROM RAW_CUSTOMERS_STAGING;
+-- Verify staging has the new data
+SELECT 'STAGING (after insert)' AS status, COUNT(*) AS records FROM RAW_CUSTOMERS_STAGING;
+
+-- Compare: Production is unchanged, staging has new data
+SELECT 
+    'PRODUCTION' AS table_name, COUNT(*) AS records FROM RAW_CUSTOMERS
+UNION ALL
+SELECT 
+    'STAGING', COUNT(*) FROM RAW_CUSTOMERS_STAGING;
 
 -- ═══════════════════════════════════════════════════════════════════════════
--- THE SWAP: Atomic cutover with zero downtime!
+-- STEP 3: VALIDATE - Test the changes before going live
 -- ═══════════════════════════════════════════════════════════════════════════
 
--- SWAP: Atomically exchange the tables
+-- Run validation queries on staging (production is unaffected!)
+SELECT 
+    _raw_data:SEGMENT::VARCHAR AS segment,
+    COUNT(*) AS customer_count,
+    AVG(_raw_data:HEALTH_SCORE::INT) AS avg_health
+FROM RAW_CUSTOMERS_STAGING
+GROUP BY _raw_data:SEGMENT::VARCHAR
+ORDER BY customer_count DESC;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- STEP 4: SWAP - Atomic cutover to production!
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- SWAP: Atomically exchange the tables - ZERO DOWNTIME!
 ALTER TABLE RAW_CUSTOMERS_STAGING SWAP WITH RAW_CUSTOMERS;
 
--- Verify: Production now has the new data!
-SELECT 'AFTER SWAP - Production' AS status, COUNT(*) AS record_count 
-FROM RAW_CUSTOMERS;
+-- Production now has the new data!
+SELECT 'PRODUCTION (after swap)' AS status, COUNT(*) AS records FROM RAW_CUSTOMERS;
 
--- The old production data is now in the STAGING table (backup!)
-SELECT 'AFTER SWAP - Staging (old prod)' AS status, COUNT(*) AS record_count 
-FROM RAW_CUSTOMERS_STAGING;
+-- Old production is now in staging (instant rollback available!)
+SELECT 'STAGING (old prod)' AS status, COUNT(*) AS records FROM RAW_CUSTOMERS_STAGING;
 
--- Check the new batch data is now in production
+-- Verify new batch is now in production
 SELECT _batch_id, COUNT(*) AS records
 FROM RAW_CUSTOMERS
 GROUP BY _batch_id
 ORDER BY _batch_id;
 
--- 🎯 Key insight: SWAP is atomic - zero downtime, instant cutover!
--- The Dynamic Tables (Silver/Gold) will automatically refresh from the new Bronze data!
+-- 🎯 Dynamic Tables (Silver/Gold) will automatically refresh from new Bronze!
 
--- Clean up the old staging table (optional - or keep as backup for rollback)
--- DROP TABLE RAW_CUSTOMERS_STAGING;
+-- ═══════════════════════════════════════════════════════════════════════════
+-- STEP 5: ROLLBACK (if needed) - Swap back instantly!
+-- ═══════════════════════════════════════════════════════════════════════════
 
--- ROLLBACK DEMO: If something went wrong, swap back!
+-- If something went wrong, rollback is ONE command:
 -- ALTER TABLE RAW_CUSTOMERS_STAGING SWAP WITH RAW_CUSTOMERS;
 
+-- Clean up staging when confident (or keep for audit)
+-- DROP TABLE RAW_CUSTOMERS_STAGING;
+
 /*
-    SWAP USE CASES:
-    
-    1. MONTHLY DATA REFRESH (just demonstrated!):
-       - Load new data into _STAGING table
-       - Validate the data quality
-       - SWAP with production - instant cutover
-       - Keep old table as backup for rollback
-       
-    2. BLUE/GREEN DEPLOYMENT:
-       - Build new version in dev/staging
-       - Test thoroughly
-       - SWAP to production atomically
-       
-    3. SCHEMA MIGRATION:
-       - Create new table with updated schema
-       - Backfill data with transformations
-       - SWAP to go live instantly
-       
-    4. INSTANT ROLLBACK:
-       - Keep old table after swap
-       - If issues discovered, SWAP back immediately
-       - Zero downtime in either direction!
-       
-    WHY THIS MATTERS FOR MEDALLION:
-    - SWAP the Bronze layer source tables
-    - Dynamic Tables (Silver/Gold) auto-refresh from new Bronze
-    - Entire pipeline updates atomically!
+    ┌────────────────────────────────────────────────────────────────────────┐
+    │              CLONE + SWAP PATTERN SUMMARY                              │
+    ├────────────────────────────────────────────────────────────────────────┤
+    │                                                                        │
+    │   ┌──────────────┐     CLONE      ┌──────────────┐                    │
+    │   │  PRODUCTION  │ ─────────────▶ │   STAGING    │                    │
+    │   │ RAW_CUSTOMERS│    (instant)   │ RAW_CUSTOMERS│                    │
+    │   └──────────────┘                │   _STAGING   │                    │
+    │          │                        └──────┬───────┘                    │
+    │          │                               │                            │
+    │          │                          MODIFY & TEST                     │
+    │          │                         (safe sandbox)                     │
+    │          │                               │                            │
+    │          │         SWAP                  │                            │
+    │          │◀─────────────────────────────▶│                            │
+    │          │       (atomic!)               │                            │
+    │          │                               │                            │
+    │   ┌──────▼───────┐                ┌──────▼───────┐                    │
+    │   │  PRODUCTION  │                │   STAGING    │                    │
+    │   │  (new data)  │                │  (old data)  │                    │
+    │   └──────────────┘                │  = ROLLBACK! │                    │
+    │                                   └──────────────┘                    │
+    │                                                                        │
+    │   BENEFITS:                                                            │
+    │   ✅ Clone is instant (any size)                                       │
+    │   ✅ Zero storage cost until changes made                              │
+    │   ✅ Test safely without affecting production                          │
+    │   ✅ Swap is atomic - zero downtime                                    │
+    │   ✅ Instant rollback by swapping back                                 │
+    │   ✅ Dynamic Tables auto-refresh from new Bronze                       │
+    │                                                                        │
+    └────────────────────────────────────────────────────────────────────────┘
 */
 
 -- ============================================================================
