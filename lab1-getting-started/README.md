@@ -11,6 +11,7 @@
 |---------|---------------|
 | **Data Sharing** | Instant access to shared data - no copies! |
 | **Separation of Compute** | Independent warehouses for different workloads |
+| **Performance Scaling** | Compare XSMALL vs MEDIUM - see linear speedup! |
 | **Instant Resizing** | Scale up/down in seconds with zero downtime |
 | **Role-Based Access** | Analyst can read, Engineer can write |
 
@@ -29,11 +30,14 @@
 CREATE TABLE CUSTOMERS AS SELECT * FROM FMG_SHARED_DATA.FMG.CUSTOMERS;
 ```
 
-### Instant Resizing
+### Performance Scaling (XSMALL vs MEDIUM)
 ```sql
+-- Run complex query on XSMALL: ~8 seconds
+-- Resize in seconds...
 ALTER WAREHOUSE FMG_ANALYTICS_WH SET WAREHOUSE_SIZE = 'MEDIUM';
--- Done in seconds! Queries keep running!
+-- Run same query on MEDIUM: ~2 seconds (4x faster!)
 ```
+Linear scaling: 2x compute = 2x speed = 2x cost
 
 ### Role-Based Access Control
 ```sql
